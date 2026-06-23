@@ -32,16 +32,8 @@ The project is intended for research, listening tests, and experimentation rathe
 
 The algorithms have primarily been evaluated using the following playback chain.
 
-## Loudspeakers
-
 * Custom loudspeaker systems based on Manger Audio drivers
-
-## Processor
-
 * Trinnov Altitude 16
-
-## Playback Devices
-
 * Nvidia Shield with VLC Player using bitstream audio output
 * Zappiti 4K HDR Mini using Explorer playback with bitstream audio output
 
