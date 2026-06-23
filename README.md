@@ -824,7 +824,7 @@ FFT Tools is the result of more than two decades of experimentation with audio p
 
 My name is chackl, and my interest in audio processing started long before FFT Tools existed.
 
-## Early Audio and DSP Development
+### Early Audio and DSP Development
 
 Around 2017-18, I became involved with the SynthMaker community, which later evolved into FlowStone. This environment provided one of the first opportunities to experiment with DSP concepts, audio routing, signal processing, and plugin development.
 
@@ -832,13 +832,13 @@ Over the years, I created numerous audio tools, experiments, and VST plugins und
 
 During the same period I was active in several audio-related communities, including Mainstream Audio, VirtualDJ plugins, and FlowStone DSP development, where I continuously explored audio processing techniques, plugin architectures, and signal analysis.
 
-## Professional and Large-Scale Technical Projects
+### Professional and Large-Scale Technical Projects
 
 Between approximately 2013 and 2019, I was involved in various software, networking, and infrastructure projects related to a local Festival.
 
 These projects ranged from software development to network and technical infrastructure tasks and provided valuable practical experience with large-scale systems, reliability, and real-world deployment environments.
 
-## The Home Hi-Fi Experiment
+### The Home Hi-Fi Experiment
 
 Beginning around 2019, I became increasingly interested in what could be achieved using affordable consumer AV receivers and home audio systems.
 
@@ -846,7 +846,7 @@ Instead of focusing on high-end studio environments, I started exploring how adv
 
 This became the foundation for of the ideas that would evolve into FFT Tools.
 
-## HFSoundRestore and the Beginning of FFT Research
+### HFSoundRestore and the Beginning of FFT Research
 
 In 2020, I developed HFSoundRestore, an early experiment focused on reconstructing missing high-frequency information in compressed audio material. The project explored whether lost upper-frequency content could be estimated and recreated from the spectral information still available within the recording.
 
@@ -854,7 +854,7 @@ HFSoundRestore marked the beginning of a much deeper interest in FFT-based audio
 
 Many of these experiments never became public projects, but each contributed ideas and lessons that eventually found their way into FFT Tools.
 
-## Why FFT Tools Exists Today
+### Why FFT Tools Exists Today
 
 For many years, the ideas behind FFT Tools were significantly larger than what could realistically be implemented and maintained by a single person working on the project in their spare time.
 
