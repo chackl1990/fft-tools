@@ -797,3 +797,25 @@ FFT Tools is an active experimental research project focused on:
 * Spectral audio analysis
 
 The algorithms are continuously refined and should currently be considered experimental research tools intended for critical Hi-Fi listening and technical evaluation.
+
+# License / Usage Notice
+
+This project currently does not provide a final open-source license.
+
+FFT Tools is still in a testing and research phase, and the future direction of the project is intentionally still open.
+
+Some parts of the code may have used existing implementations as technical references or starting points. This was not done to copy concepts, but because in certain low-level areas there are only a few practical or reasonable ways to implement the required functionality.
+
+The tool may be used for private testing at home.
+
+No warranty, liability, or guarantee of correctness, safety, compatibility, or audio quality is provided.
+
+Public tests, demonstrations, presentations, publications, comparisons, or similar uses must be discussed with the repository author in advance.
+
+The same applies if the tool, parts of the tool, or derived work based on the tool should be reused, redistributed, published online, or integrated into another project. Permission must be requested from the repository author as long as the license has not been precisely defined.
+
+In the highly unlikely event of a pull request, the contributor must be aware that the project license may still change in the future. By submitting a pull request, the contributor does so with this knowledge and automatically waives any claim to co-ownership, co-management, license control, project governance, or decision-making rights regarding the project.
+
+you can contact me by opening an issue.
+
+Regards, C.Hackl
