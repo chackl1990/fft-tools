@@ -226,6 +226,13 @@ Available modes:
 --upmix-spectrum
 ```
 
+Important `--upmix` final output gain options:
+
+```text
+--nocetergain <dB>   default -6.0 dB, non-center channels
+--centergain <dB>    default  0.0 dB, Center channel
+```
+
 ---
 
 # WAV Format Support
@@ -515,6 +522,65 @@ Default:
 
 ---
 
+### --nocetergain <dB>
+
+Final output gain for all non-center channels in the dereverb based `--upmix` mode.
+
+This affects:
+
+```text
+FL
+FR
+SL
+SR
+BL
+BR
+```
+
+Default:
+
+```text
+-6.0
+```
+
+The value is specified in decibels and may be positive or negative.
+
+Examples:
+
+```text
+--nocetergain -6.0
+--nocetergain -3.0
+--nocetergain 0.0
+```
+
+For convenience, the corrected spellings `--nocentergain`, `--noncentergain`, `--noncenter-gain`, and `--no-center-gain` are accepted as aliases.
+
+---
+
+### --centergain <dB>
+
+Final output gain for the Center channel in the dereverb based `--upmix` mode.
+
+Default:
+
+```text
+0.0
+```
+
+The value is specified in decibels and may be positive or negative.
+
+Examples:
+
+```text
+--centergain 0.0
+--centergain 3.0
+--centergain -1.5
+```
+
+This is a final output-level adjustment. It is separate from `--center-gain <pct>`, which still controls the internal center extraction/residual amount.
+
+---
+
 ### --center-gain <pct>
 
 Default:
@@ -523,7 +589,9 @@ Default:
 100
 ```
 
-Controls focused center energy.
+Controls the internal focused-center extraction/residual amount.
+
+This is not the final Center output gain. For final Center channel level in dB, use `--centergain <dB>`.
 
 Recommended:
 
@@ -769,6 +837,12 @@ Wide and aggressive Upmix:
 
 ```text
 fft_tools.exe input.wav --upmix output_7_1.wav --wide-gain 100 --wide-exp 1.0 -o
+```
+
+Upmix with explicit final Center/non-center output gains:
+
+```text
+fft_tools.exe input.wav --upmix output_7_1.wav --nocetergain -6.0 --centergain 0.0 -o
 ```
 
 Dereverb Export:

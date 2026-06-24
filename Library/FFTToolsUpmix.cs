@@ -163,7 +163,9 @@ namespace FFTTools {
             return value;
         }
 
-        private const double NonCenterGain = 0.7071067811865476;
+        private static double DbToLinearGain(double db) {
+            return Math.Pow(10.0, db / 20.0);
+        }
 
         public static double[,] RenderDereverbUpmixChunk(double[,] dereverb, int frames, int sampleRate, double ampFactor, LCRWideOptions options, Action<double> progress) {
             if (dereverb == null) throw new ArgumentNullException("dereverb");
@@ -191,6 +193,8 @@ namespace FFTTools {
                 effectiveOptions.LCR7CLCRPosition);
 
             double centerGain = Clamp(effectiveOptions.CenterGain, 0.0, 2.0);
+            double nonCenterOutputGain = DbToLinearGain(effectiveOptions.NonCenterOutputGainDb);
+            double centerOutputGain = DbToLinearGain(effectiveOptions.CenterOutputGainDb);
             double[,] output = new double[frames, 8];
             for (int i = 0; i < frames; i++) {
                 double centerForResidual = center[i] * centerGain;
@@ -202,14 +206,14 @@ namespace FFTTools {
                 double farL = dereverb[i, 4] * ampFactor;
                 double farR = dereverb[i, 5] * ampFactor;
 
-                output[i, 0] = frontL * NonCenterGain;
-                output[i, 1] = frontR * NonCenterGain;
-                output[i, 2] = c;
+                output[i, 0] = frontL * nonCenterOutputGain;
+                output[i, 1] = frontR * nonCenterOutputGain;
+                output[i, 2] = c * centerOutputGain;
                 output[i, 3] = 0.0;
-                output[i, 4] = nearL * NonCenterGain;
-                output[i, 5] = nearR * NonCenterGain;
-                output[i, 6] = farL * NonCenterGain;
-                output[i, 7] = farR * NonCenterGain;
+                output[i, 4] = nearL * nonCenterOutputGain;
+                output[i, 5] = nearR * nonCenterOutputGain;
+                output[i, 6] = farL * nonCenterOutputGain;
+                output[i, 7] = farR * nonCenterOutputGain;
 
                 if (progress != null && ((i & 8191) == 0 || i + 1 == frames)) {
                     progress((double)(i + 1) / (double)Math.Max(1, frames));

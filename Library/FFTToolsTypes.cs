@@ -5,6 +5,8 @@ namespace FFTTools {
 	public class LCRWideOptions {
 		public double CenterRemove = 1.0;
 		public double CenterGain = 1.0;
+		public double NonCenterOutputGainDb = -6.0;
+		public double CenterOutputGainDb = 0.0;
 		public double WideGain = 0.35;
 		public double WideRemove = 0.5;
 		public double WideExponent = 2.5;

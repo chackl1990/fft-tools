@@ -6,7 +6,7 @@ using System.Threading;
 
 namespace FFTTools {
     internal sealed class Program {
-        private const string Version = "fft_tools r131-source-cleanup";
+        private const string Version = "fft_tools r133-upmix-db-gains";
         private static bool _overwriteAllowed;
         private static bool _consoleMuted;
         private static string _progressName;
@@ -128,6 +128,12 @@ namespace FFTTools {
             }
             else if (token == "-n") {
                 command.NormalizeDb = ReadNumber(cursor);
+            }
+            else if (token == "--nocetergain" || token == "--nocentergain" || token == "--noncentergain" || token == "--noncenter-gain" || token == "--no-center-gain") {
+                command.Upmix.NonCenterOutputGainDb = ReadNumber(cursor);
+            }
+            else if (token == "--centergain") {
+                command.Upmix.CenterOutputGainDb = ReadNumber(cursor);
             }
             else if (token == "--center-gain") {
                 command.Upmix.CenterGain = ReadNumber(cursor) / 100.0;
@@ -267,7 +273,8 @@ namespace FFTTools {
             Console.WriteLine();
             Console.WriteLine("Common options: -o, -t <1..32>, -a <percent>");
             Console.WriteLine("Enhance: --rate|-r <rate|factor>, -n <dBFS>");
-            Console.WriteLine("Upmix: --center-gain, --wide-gain, --wide-exp, --wide-lowcut, --wide-phase, --pan-sharpness, --clcr-pos");
+            Console.WriteLine("Upmix output: --nocetergain <dB>, --centergain <dB>");
+            Console.WriteLine("Upmix tuning: --center-gain, --wide-gain, --wide-exp, --wide-lowcut, --wide-phase, --pan-sharpness, --clcr-pos");
             Console.WriteLine("Dereverb: --dereverb-lowcut, --dereverb-early-start, --dereverb-early-full, --dereverb-late-start, --dereverb-max-ms, --dereverb-strength, --dereverb-tonal-protect");
             Console.WriteLine("WAV: PCM 8/16/24/32 and IEEE float 32/64 are supported.");
         }

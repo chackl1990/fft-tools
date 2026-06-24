@@ -1,0 +1,6 @@
+C:\Users\chackl\SynologyDrive\Eigene\fft-tools\stable\bin\x64\Release\fft_tools.exe
+C:\Users\chackl\SynologyDrive\Eigene\fft-tools\stable\bin\x64\Release\fft_tools.pdb
+C:\Users\chackl\SynologyDrive\Eigene\fft-tools\stable\obj\x64\Release\fft_tools.csproj.AssemblyReference.cache
+C:\Users\chackl\SynologyDrive\Eigene\fft-tools\stable\obj\x64\Release\fft_tools.csproj.CoreCompileInputs.cache
+C:\Users\chackl\SynologyDrive\Eigene\fft-tools\stable\obj\x64\Release\fft_tools.exe
+C:\Users\chackl\SynologyDrive\Eigene\fft-tools\stable\obj\x64\Release\fft_tools.pdb
