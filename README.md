@@ -120,23 +120,45 @@ The stereo source is separated into:
 
 The resulting components are distributed as follows:
 
-| Component              | Destination    |
-| ---------------------- | -------------- |
-| Dry + very near reverb | Front channels |
-| Near reverb            | Side channels  |
-| Far reverb             | Rear channels  |
+| Component   | Destination    |
+| ----------- | -------------- |
+| Dry         | Front channels |
+| Near reverb | Side channels  |
+| Far reverb  | Rear channels  |
 
 ### Center Extraction
 
-Center extraction is not based solely on FFT magnitude.
+Center extraction is not based solely on classical FFT magnitude.
 
-The algorithm additionally evaluates:
+After the FFT, every complex L/R spectral bin is interpreted through an equivalent polar representation:
 
-* Phase coherence
-* Frequency-dependent phase relationships
-* Millisecond-based delay tolerance
+```text
+signed amplitude + folded phase
+```
 
-This allows stable center detection even when magnitude information alone would not be sufficient.
+The complex FFT value itself is not changed. For each bin, magnitude and phase are evaluated. If the phase is outside `-90° .. +90°`, the phase is shifted by 180° and the amplitude sign is inverted. The folded phase therefore always remains inside `-90° .. +90°`, while the signed amplitude may be positive or negative.
+
+Examples:
+
+```text
++1 at   0°  -> signed amplitude +1, folded phase 0°
++1 at 180°  -> signed amplitude -1, folded phase 0°
+```
+
+For energy, power, or dB calculations, the absolute value of the signed amplitude is still used. For Center calculation, the signed amplitude itself is used.
+
+The Center bin is then calculated from:
+
+```text
+Center signed amplitude = signed amplitude closer to zero
+Center folded phase     = folded phase of that selected side, with the deviation toward the other folded phase scaled by the SmoothStep phase gate
+```
+
+The existing millisecond based phase gate remains active. Between `CenterPhaseFullDelayMs` and `CenterPhaseZeroDelayMs`, the contribution uses SmoothStep interpolation for a softer transition. The SmoothStep phase gate scales the selected signed amplitude before IFFT and also controls how far the selected folded phase moves toward the other channel's folded phase.
+
+The old neighbour-bin smoothing of the Center mask is no longer applied. The signed-amplitude Center decision is used directly per bin so that neighbour bins do not raise or lower the current bin's Center decision.
+
+This means the Center cannot become larger than the weaker signed side of the L/R pair. For example, if the signed amplitudes are `+0.8` and `+0.3`, only `+0.3` can enter the Center before masking/gain. If the signed amplitudes have opposite signs, the signed pan and phase gates prevent false Center extraction.
 
 ### Reconstruction Goal
 
@@ -508,6 +530,21 @@ Output channel layout:
 8 = BR
 ```
 
+With unity output gains (`--nocetergain 0.0`, `--centergain 0.0`, `--center-gain 100`, `-a 100`), the Front section is reconstructable against the dry signal:
+
+```text
+FL + C = dry L
+FR + C = dry R
+```
+
+The full dereverb/upmix split remains:
+
+```text
+Front = dry split into FL / C / FR
+Side  = near reverb
+Rear  = far reverb
+```
+
 ## Parameters
 
 ### -a <percent>
@@ -774,6 +811,8 @@ Output channel layout:
 ```
 
 Uses the same front-stage spectral parameters as Upmix but does not perform dereverb separation.
+
+The Center detector in this mode uses the same signed-amplitude / folded-phase Center calculation as the dereverb based `--upmix` mode. The resulting Center bin is subtracted from the original spectral L/R bins for the remaining front, side, and back distribution.
 
 Available parameters:
 

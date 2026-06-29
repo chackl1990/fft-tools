@@ -2,8 +2,8 @@ using System;
 
 namespace FFTTools {
     public static class FFTToolsUpmix {
-        public const double CenterPhaseFullDelayMs = 5.0;
-        public const double CenterPhaseZeroDelayMs = 10.0;
+        public const double CenterPhaseFullDelayMs = 1.0;
+        public const double CenterPhaseZeroDelayMs = CenterPhaseFullDelayMs * 2;
 
         public static double[] ExtractCenter(double[,] input, int inputFrames, int sampleRate, int windowSize, int overlapCount, double panSharpness, double centerPosition) {
             if (input == null) throw new ArgumentNullException("input");
@@ -35,7 +35,7 @@ namespace FFTTools {
             double[] spectrumR = new double[windowSize];
             double[] spectrumC = new double[windowSize];
             double[] rawMask = new double[binCount + 1];
-            double[] smoothMask = new double[binCount + 1];
+            double[] phaseWeight = new double[binCount + 1];
 
             panSharpness = Math.Max(0.1, panSharpness);
             centerPosition = Clamp(centerPosition, 0.05, 0.95);
@@ -45,7 +45,7 @@ namespace FFTTools {
                 Array.Clear(spectrumR, 0, spectrumR.Length);
                 Array.Clear(spectrumC, 0, spectrumC.Length);
                 Array.Clear(rawMask, 0, rawMask.Length);
-                Array.Clear(smoothMask, 0, smoothMask.Length);
+                Array.Clear(phaseWeight, 0, phaseWeight.Length);
 
                 int inputCopyStart = Math.Max(0, -blockStart);
                 int inputCopyEnd = Math.Min(windowSize, inputFrames - blockStart);
@@ -59,28 +59,42 @@ namespace FFTTools {
                 fft.ComputeForward(spectrumL);
                 fft.ComputeForward(spectrumR);
 
+                // Center calculation uses an equivalent polar representation:
+                // signed amplitude + folded phase. The complex FFT bins themselves
+                // are not changed. Bins whose phase is outside -90..+90 degrees
+                // are interpreted as negative signed amplitude with a 180-degree
+                // folded phase. Energy / dB style calculations still use abs().
                 for (int bin = 1; bin < binCount; bin++) {
                     int si = bin * 2;
                     double lR = spectrumL[si];
                     double lI = spectrumL[si + 1];
                     double rR = spectrumR[si];
                     double rI = spectrumR[si + 1];
-                    double lMag = Math.Sqrt((lR * lR) + (lI * lI));
-                    double rMag = Math.Sqrt((rR * rR) + (rI * rI));
-                    double panPos = Clamp((rMag - lMag) / (rMag + lMag + 1.0e-20), -1.0, 1.0);
+                    double lSignedAmplitude = SignedSpectralAmplitude(lR, lI);
+                    double rSignedAmplitude = SignedSpectralAmplitude(rR, rI);
+                    double panPos = SignedAmplitudePan(lSignedAmplitude, rSignedAmplitude);
                     double levelGate = CenterLevelGateFromPan(panPos, centerPosition);
                     if (panSharpness != 1.0) levelGate = Math.Pow(levelGate, panSharpness);
-                    double phaseGate = CenterPhaseGate(CosPhase(lR, lI, rR, rI), (double)bin * binHz);
+                    double phaseGate = CenterPhaseGate(CosFoldedPhase(lR, lI, rR, rI), (double)bin * binHz);
+                    phaseWeight[bin] = phaseGate;
                     rawMask[bin] = Clamp(levelGate * phaseGate, 0.0, 1.0);
                 }
 
-                SmoothCenterMaskByNeighbour(rawMask, smoothMask, binCount);
-
                 for (int bin = 1; bin < binCount; bin++) {
                     int si = bin * 2;
-                    double mask = smoothMask[bin];
-                    spectrumC[si] = (spectrumL[si] + spectrumR[si]) * 0.5 * mask;
-                    spectrumC[si + 1] = (spectrumL[si + 1] + spectrumR[si + 1]) * 0.5 * mask;
+                    double cR;
+                    double cI;
+                    BuildSignedAmplitudeCenterBin(
+                        spectrumL[si],
+                        spectrumL[si + 1],
+                        spectrumR[si],
+                        spectrumR[si + 1],
+                        rawMask[bin],
+                        phaseWeight[bin],
+                        out cR,
+                        out cI);
+                    spectrumC[si] = cR;
+                    spectrumC[si + 1] = cI;
                 }
 
                 fft.ComputeReverse(spectrumC);
@@ -115,13 +129,78 @@ namespace FFTTools {
             double span = zeroDegrees - fullDegrees;
             if (span <= 1.0e-12) return 0.0;
             double t = (angleDegrees - fullDegrees) / span;
-            t = SmoothStep(t);
-            return 1.0 - t;
+            return 1.0 - SmoothStep(t);
         }
 
         private static double CenterPhaseDelayMsToDegrees(double frequencyHz, double delayMs) {
             if (frequencyHz <= 0.0 || delayMs <= 0.0) return 0.0;
             return frequencyHz * delayMs * 0.36;
+        }
+
+        // Returns |bin| with a sign that folds the phase into the front half-plane.
+        // real < 0 means the original phase is outside -90..+90 degrees.
+        public static double SignedSpectralAmplitude(double real, double imag) {
+            double magnitude = Math.Sqrt((real * real) + (imag * imag));
+            return (real < 0.0) ? -magnitude : magnitude;
+        }
+
+        // Pan detection for Center uses the signed amplitudes directly. The
+        // denominator still uses absolute amplitudes because it is an energy-scale
+        // normalization, not a Center direction decision.
+        public static double SignedAmplitudePan(double leftSignedAmplitude, double rightSignedAmplitude) {
+            double denominator = Math.Abs(leftSignedAmplitude) + Math.Abs(rightSignedAmplitude) + 1.0e-20;
+            return Clamp((rightSignedAmplitude - leftSignedAmplitude) / denominator, -1.0, 1.0);
+        }
+
+        // Cosine of the phase difference after both phases are folded into
+        // -90..+90 degrees. This avoids atan2() in the mask hot-loop.
+        public static double CosFoldedPhase(double lR, double lI, double rR, double rI) {
+            double lMagSq = (lR * lR) + (lI * lI);
+            double rMagSq = (rR * rR) + (rI * rI);
+            if (lMagSq <= 1.0e-30 || rMagSq <= 1.0e-30) return 1.0;
+
+            double lSign = (lR < 0.0) ? -1.0 : 1.0;
+            double rSign = (rR < 0.0) ? -1.0 : 1.0;
+            double dot = ((lR * lSign) * (rR * rSign)) + ((lI * lSign) * (rI * rSign));
+            return Clamp(dot / Math.Sqrt(lMagSq * rMagSq), -1.0, 1.0);
+        }
+
+        // Builds the actual Center bin from the signed amplitude that is closer
+        // to zero. This prevents the Center from becoming larger than the weaker
+        // signed side of the L/R pair. The phase starts at the folded phase of
+        // that selected side. The deviation toward the other folded phase is
+        // interpolated by the SmoothStep phase gate: full gate reaches the phase
+        // midpoint, partial gate moves only part of the way, zero gate stays at
+        // the selected side but the Center amplitude is already muted by mask.
+        public static void BuildSignedAmplitudeCenterBin(double lR, double lI, double rR, double rI, double mask, double phaseDeviationWeight, out double cR, out double cI) {
+            cR = 0.0;
+            cI = 0.0;
+            if (mask <= 0.0) return;
+
+            double lSignedAmplitude = SignedSpectralAmplitude(lR, lI);
+            double rSignedAmplitude = SignedSpectralAmplitude(rR, rI);
+            double lAbs = Math.Abs(lSignedAmplitude);
+            double rAbs = Math.Abs(rSignedAmplitude);
+
+            bool useLeft = lAbs <= rAbs;
+            double baseSignedAmplitude = useLeft ? lSignedAmplitude : rSignedAmplitude;
+            double centerSignedAmplitude = baseSignedAmplitude * mask;
+            if (centerSignedAmplitude == 0.0) return;
+
+            double basePhase = useLeft ? FoldedPhaseRadians(lR, lI) : FoldedPhaseRadians(rR, rI);
+            double otherPhase = useLeft ? FoldedPhaseRadians(rR, rI) : FoldedPhaseRadians(lR, lI);
+            double phaseDelta = otherPhase - basePhase;
+            double centerPhase = basePhase + (phaseDelta * 0.5 * Clamp(phaseDeviationWeight, 0.0, 1.0));
+
+            cR = centerSignedAmplitude * Math.Cos(centerPhase);
+            cI = centerSignedAmplitude * Math.Sin(centerPhase);
+        }
+
+        public static double FoldedPhaseRadians(double real, double imag) {
+            double phase = Math.Atan2(imag, real);
+            if (phase > (Math.PI * 0.5)) return phase - Math.PI;
+            if (phase < -(Math.PI * 0.5)) return phase + Math.PI;
+            return phase;
         }
 
         public static double CosPhase(double lR, double lI, double rR, double rI) {
@@ -138,15 +217,6 @@ namespace FFTTools {
             return 1.0 - (panPos / centerPosition);
         }
 
-        public static void SmoothCenterMaskByNeighbour(double[] rawGate, double[] smoothGate, int binCount) {
-            for (int bin = 1; bin < binCount; bin++) {
-                double raw = Clamp(rawGate[bin], 0.0, 1.0);
-                double left = Clamp(rawGate[bin - 1], 0.0, 1.0);
-                double right = (bin + 1 < binCount) ? Clamp(rawGate[bin + 1], 0.0, 1.0) : raw;
-                double smoothed = (left * 0.25) + (raw * 0.50) + (right * 0.25);
-                smoothGate[bin] = (raw <= 0.0) ? 0.0 : Clamp(smoothed, 0.0, 1.0);
-            }
-        }
 
         private static double[] CreateRaisedCosineWindow(int n, double power) {
             return WindowMath.BuildPowerSineWindow(n, power);
@@ -173,14 +243,13 @@ namespace FFTTools {
             if (dereverb.GetLength(1) < 6) throw new Exception("Upmix dereverb input must have six channels.");
 
             LCRWideOptions effectiveOptions = options ?? new LCRWideOptions();
-            const double fixedNearFrontKeep = 0.50;
             int centerWindowSize = 8192;
             int centerOverlap = 16;
 
             double[,] dryFrontInput = new double[frames, 2];
             for (int i = 0; i < frames; i++) {
-                dryFrontInput[i, 0] = dereverb[i, 0] + (dereverb[i, 2] * fixedNearFrontKeep);
-                dryFrontInput[i, 1] = dereverb[i, 1] + (dereverb[i, 3] * fixedNearFrontKeep);
+                dryFrontInput[i, 0] = dereverb[i, 0];
+                dryFrontInput[i, 1] = dereverb[i, 1];
             }
 
             double[] center = ExtractCenter(
@@ -199,8 +268,15 @@ namespace FFTTools {
             for (int i = 0; i < frames; i++) {
                 double centerForResidual = center[i] * centerGain;
                 double c = centerForResidual * ampFactor;
+
+                // Front is a strictly reconstructable dry residual:
+                //   FL + C = dry L
+                //   FR + C = dry R
+                // when amp/output gains are unity and CenterGain is 100%.
                 double frontL = (dryFrontInput[i, 0] - centerForResidual) * ampFactor;
                 double frontR = (dryFrontInput[i, 1] - centerForResidual) * ampFactor;
+
+                // Reverb components remain separated: Side = near, Rear = far.
                 double nearL = dereverb[i, 2] * ampFactor;
                 double nearR = dereverb[i, 3] * ampFactor;
                 double farL = dereverb[i, 4] * ampFactor;

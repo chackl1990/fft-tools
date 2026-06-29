@@ -3,10 +3,10 @@ using System;
 namespace FFTTools {
     public class DereverbOptions {
         public double LowCutHz = 100.0;
-        public double EarlyStartMs = 40.0;
-        public double EarlyFullMs = 80.0;
-        public double LateStartMs = 160.0;
-        public double MaxTailMs = 600.0;
+        public double EarlyStartMs = 100.0;
+        public double EarlyFullMs = 200.0;
+        public double LateStartMs = 300.0;
+        public double MaxTailMs = 500.0;
         public double Strength = 1.0;
         public double TonalProtect = 0.00;
     }
