@@ -6,7 +6,7 @@ using System.Threading;
 
 namespace FFTTools {
     internal sealed class Program {
-        private const string Version = "fft_tools r142-dry-front-mixdown-safe";
+        private const string Version = "fft_tools r158-centerextract-sidepan-mixdown";
         private static bool _overwriteAllowed;
         private static bool _consoleMuted;
         private static string _progressName;

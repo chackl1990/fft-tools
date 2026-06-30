@@ -1,5 +1,9 @@
 # FFT Tools
 
+Revision r158 is based on r157 and keeps the intended Dry residual Front/Side pan split. The Dry Center is calculated by the neutral CenterExtract sum/difference implementation, RF64 output and RIFF/RF64 input support remain active, and the correct reconstruction equation includes the optional Dry Side split.
+Inspiration the general Center Cut concept by Avery Lee.
+Internal WAV I/O by chackl; FFT backend retained separately.
+
 FFT Tools is a collection of FFT-based audio processing tools designed for Hi-Fi experiments and advanced audio research.
 
 The project currently focuses on:
@@ -128,52 +132,46 @@ The resulting components are distributed as follows:
 
 ### Center Extraction
 
-Center extraction is not based solely on classical FFT magnitude.
+The Dry Center is calculated with the CenterExtract sum/difference common-signal estimate instead of the earlier min-magnitude/common-phase approximation.
 
-After the FFT, every complex L/R spectral bin is interpreted through an equivalent polar representation:
+For every FFT bin, the algorithm evaluates the complex `L` and `R` bins and calculates the common part with the classic sum/difference relationship:
 
-```text
-signed amplitude + folded phase
-```
-
-The complex FFT value itself is not changed. For each bin, magnitude and phase are evaluated. If the phase is outside `-90° .. +90°`, the phase is shifted by 180° and the amplitude sign is inverted. The folded phase therefore always remains inside `-90° .. +90°`, while the signed amplitude may be positive or negative.
-
-Examples:
 
 ```text
-+1 at   0°  -> signed amplitude +1, folded phase 0°
-+1 at 180°  -> signed amplitude -1, folded phase 0°
+sum  = L + R
+diff = L - R
+alpha = 0.5 - 0.5 * sqrt(|diff|^2 / |sum|^2)
+C = sum * alpha
 ```
 
-For energy, power, or dB calculations, the absolute value of the signed amplitude is still used. For Center calculation, the signed amplitude itself is used.
+In r158 the Center stage uses the neutral `CenterExtract` helper. It does not use the older pan gate, millisecond phase-delay gate, signed-amplitude fold, or Center fragment pruner.
 
-The Center bin is then calculated from:
+After the Center has been subtracted from the Dry signal, the remaining Dry residual can be split between Front and Side for very clear lateral stereo material. This is controlled by two intentionally easy-to-find code constants in `Library/FFTToolsUpmix.cs`:
 
-```text
-Center signed amplitude = signed amplitude closer to zero
-Center folded phase     = folded phase of that selected side, with the deviation toward the other folded phase scaled by the SmoothStep phase gate
+```csharp
+private const double sidepan = 0.8;
+private const double front_side_mix = 0.5;
 ```
 
-The existing millisecond based phase gate remains active. Between `CenterPhaseFullDelayMs` and `CenterPhaseZeroDelayMs`, the contribution uses SmoothStep interpolation for a softer transition. The SmoothStep phase gate scales the selected signed amplitude before IFFT and also controls how far the selected folded phase moves toward the other channel's folded phase.
-
-The old neighbour-bin smoothing of the Center mask is no longer applied. The signed-amplitude Center decision is used directly per bin so that neighbour bins do not raise or lower the current bin's Center decision.
-
-This means the Center cannot become larger than the weaker signed side of the L/R pair. For example, if the signed amplitudes are `+0.8` and `+0.3`, only `+0.3` can enter the Center before masking/gain. If the signed amplitudes have opposite signs, the signed pan and phase gates prevent false Center extraction.
+`sidepan = 0.8` means that only the outermost 20% of the pan range are eligible for the Front/Side split. The transition from `0.8` to `1.0` uses SmoothStep interpolation. `front_side_mix = 0.5` means that a fully side-panned Dry residual bin is split 50% Front / 50% Side. `front_side_mix = 0.0` would move it fully to Side, while `front_side_mix = 1.0` keeps it fully in Front. The split is routing, not an addition, so `frontShare + sideShare = 1.0`.
 
 ### Reconstruction Goal
 
-The upmix attempts to preserve both:
+The normal `--upmix` mode keeps the Dry/Center split reconstructable, but the optional Dry residual Front/Side pan split must be included in the technical mixdown equation. With unity gains (`--nocetergain 0.0`, `--centergain 0.0`, `--center-gain 100`, `-a 100`) the intended Dry reconstruction is:
 
-* Magnitude relationships
-* Phase relationships
+```text
+FL + drySideSplitL + C = dryL
+FR + drySideSplitR + C = dryR
+```
 
-so that the acoustic sum of all loudspeakers remains as close as possible to the original stereo source.
+Because `drySideSplitL/R` is routed into the Side channels together with Near reverb, the full technical stereo reconstruction is:
 
-The intended behavior is:
+```text
+L = FL + C + SL + BL
+R = FR + C + SR + BR
+```
 
-* Real loudspeaker playback recombines correctly
-* Digital downmixing remains extremely close to the original stereo signal
-* Only the intentional +3 dB center reference adjustment remains as a measurable difference
+where `SL/SR` contains Near reverb plus the optional far-panned Dry residual split, and `BL/BR` contains Far reverb. This is a technical unity-sum reconstruction, not a consumer AVR downmix with -3 dB Center or Surround coefficients.
 
 ---
 
@@ -273,12 +271,19 @@ IEEE Float:
 64 Bit Float (Double)
 ```
 
-Output format preservation:
+Container support:
 
 ```text
-Integer Input -> Integer Output (same bit depth)
-Float32 Input -> Float32 Output
-Float64 Input -> Float64 Output
+Input:  RIFF/WAVE and RF64/WAVE
+Output: RF64/WAVE is always written
+```
+
+RF64 output is used even for small files so that long renders are not limited by the classic RIFF 32-bit chunk-size boundary. The audio sample format is still preserved:
+
+```text
+Integer Input -> Integer RF64 Output (same bit depth)
+Float32 Input -> Float32 RF64 Output
+Float64 Input -> Float64 RF64 Output
 ```
 
 ---
@@ -425,7 +430,7 @@ Recommended:
 Default:
 
 ```text
-40
+100
 ```
 
 Beginning of near-reverb detection.
@@ -437,7 +442,7 @@ Beginning of near-reverb detection.
 Default:
 
 ```text
-80
+200
 ```
 
 Near-reverb reaches full strength.
@@ -449,7 +454,7 @@ Near-reverb reaches full strength.
 Default:
 
 ```text
-160
+300
 ```
 
 Transition from near reverb to far reverb.
@@ -461,7 +466,7 @@ Transition from near reverb to far reverb.
 Default:
 
 ```text
-600
+500
 ```
 
 Far reverb reaches full strength.
@@ -530,18 +535,18 @@ Output channel layout:
 8 = BR
 ```
 
-With unity output gains (`--nocetergain 0.0`, `--centergain 0.0`, `--center-gain 100`, `-a 100`), the Front section is reconstructable against the dry signal:
+With unity output gains (`--nocetergain 0.0`, `--centergain 0.0`, `--center-gain 100`, `-a 100`), the dry stage remains reconstructable. Because very lateral Dry residual can now be split to Side, the technical reconstruction is:
 
 ```text
-FL + C = dry L
-FR + C = dry R
+FL + SL(dry split) + C = dry L
+FR + SR(dry split) + C = dry R
 ```
 
-The full dereverb/upmix split remains:
+The full dereverb/upmix split is now:
 
 ```text
-Front = dry split into FL / C / FR
-Side  = near reverb
+Front = dry residual that stays in Front + Center
+Side  = near reverb + optional clear lateral dry residual split
 Rear  = far reverb
 ```
 
@@ -812,7 +817,7 @@ Output channel layout:
 
 Uses the same front-stage spectral parameters as Upmix but does not perform dereverb separation.
 
-The Center detector in this mode uses the same signed-amplitude / folded-phase Center calculation as the dereverb based `--upmix` mode. The resulting Center bin is subtracted from the original spectral L/R bins for the remaining front, side, and back distribution.
+The Center detector in this mode uses the same CenterExtract sum/difference formula as the dereverb based `--upmix` mode. The resulting Center bin is subtracted from the original spectral L/R bins. The remaining Front/Side distribution uses the same `sidepan` / `front_side_mix` SmoothStep handoff as the dereverb based mode.
 
 Available parameters:
 
@@ -910,6 +915,12 @@ FFT Tools is an active experimental research project focused on:
 * Spectral audio analysis
 
 The algorithms are continuously refined and should currently be considered experimental research tools intended for critical Hi-Fi listening and technical evaluation.
+
+# Historical Reference
+
+The CLI banner and this README retain a historical reference to the general Center Cut concept by Avery Lee. The implementation code itself uses neutral `CenterExtract` naming.
+
+---
 
 # License / Usage Notice
 

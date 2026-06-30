@@ -5,8 +5,8 @@ namespace FFTTools {
         public double LowCutHz = 100.0;
         public double EarlyStartMs = 100.0;
         public double EarlyFullMs = 200.0;
-        public double LateStartMs = 300.0;
-        public double MaxTailMs = 500.0;
+        public double LateStartMs = 400.0;
+        public double MaxTailMs = 800.0;
         public double Strength = 1.0;
         public double TonalProtect = 0.00;
     }

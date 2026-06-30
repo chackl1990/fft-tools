@@ -123,13 +123,23 @@ namespace FFTTools {
         }
 
         private void LoadWaveHeader() {
-            if (ReadFourCC() != "RIFF") throw new Exception("Not a RIFF file.");
+            string containerId = ReadFourCC();
+            bool isRf64 = false;
+            if (containerId == "RF64") {
+                isRf64 = true;
+            }
+            else if (containerId != "RIFF") {
+                throw new Exception("Not a RIFF/RF64 file.");
+            }
+
             uint riffSize = ReadUInt32LE();
             if (ReadFourCC() != "WAVE") throw new Exception("Not a WAVE file.");
 
             bool haveFormat = false;
             bool haveData = false;
-            long riffEnd = (_seekable && riffSize != UInt32.MaxValue) ? Math.Min(_streamLength, 8L + riffSize) : Int64.MaxValue;
+            bool haveDs64 = false;
+            ulong ds64DataBytes = 0UL;
+            long riffEnd = (!isRf64 && _seekable && riffSize != UInt32.MaxValue) ? Math.Min(_streamLength, 8L + riffSize) : Int64.MaxValue;
 
             while (!haveData) {
                 if (_seekable && _reader.BaseStream.Position >= riffEnd) break;
@@ -139,14 +149,27 @@ namespace FFTTools {
                 long chunkStart = _reader.BaseStream.Position;
                 long chunkSize = chunkSize32;
 
-                if (chunkId == "fmt ") {
+                if (chunkId == "ds64") {
+                    ulong ignoredRiffSize;
+                    ulong ignoredSampleCount;
+                    ReadDs64Chunk(chunkSize, out ignoredRiffSize, out ds64DataBytes, out ignoredSampleCount);
+                    haveDs64 = true;
+                }
+                else if (chunkId == "fmt ") {
                     ReadFormatChunk(chunkSize);
                     haveFormat = true;
                 }
                 else if (chunkId == "data") {
                     if (!haveFormat) throw new Exception("WAVE data chunk appears before format chunk.");
                     _audioPayloadOffset = _reader.BaseStream.Position;
-                    _audioPayloadBytes = ResolvePayloadBytes(chunkSize);
+                    if (isRf64 && chunkSize32 == UInt32.MaxValue) {
+                        if (!haveDs64) throw new Exception("RF64 data chunk requires a preceding ds64 chunk.");
+                        if (ds64DataBytes > Int64.MaxValue) throw new Exception("RF64 data chunk is too large for this build.");
+                        _audioPayloadBytes = (long)ds64DataBytes;
+                    }
+                    else {
+                        _audioPayloadBytes = ResolvePayloadBytes(chunkSize);
+                    }
                     _frameTotal = _audioPayloadBytes / _frameBytes;
                     haveData = true;
                 }
@@ -163,6 +186,14 @@ namespace FFTTools {
             if (_seekable) {
                 _reader.BaseStream.Seek(_audioPayloadOffset, SeekOrigin.Begin);
             }
+        }
+
+        private void ReadDs64Chunk(long chunkSize, out ulong riffSize64, out ulong dataSize64, out ulong sampleCount64) {
+            if (chunkSize < 28) throw new Exception("RF64 ds64 chunk is too short.");
+            riffSize64 = ReadUInt64LE();
+            dataSize64 = ReadUInt64LE();
+            sampleCount64 = ReadUInt64LE();
+            ReadUInt32LE(); // table length, ignored; AdvancePastChunk skips optional table entries.
         }
 
         private void ReadFormatChunk(long chunkSize) {
@@ -277,11 +308,23 @@ namespace FFTTools {
             if (b.Length != 4) throw new EndOfStreamException();
             return (uint)(b[0] | (b[1] << 8) | (b[2] << 16) | (b[3] << 24));
         }
+
+        private ulong ReadUInt64LE() {
+            byte[] b = _reader.ReadBytes(8);
+            if (b.Length != 8) throw new EndOfStreamException();
+            uint lo = (uint)(b[0] | (b[1] << 8) | (b[2] << 16) | (b[3] << 24));
+            uint hi = (uint)(b[4] | (b[5] << 8) | (b[6] << 16) | (b[7] << 24));
+            return ((ulong)hi << 32) | lo;
+        }
     }
 
     public sealed class WaveFileWriter : IWaveFrameSink {
         private const ushort WaveFormatPcm = 0x0001;
         private const ushort WaveFormatIeeeFloat = 0x0003;
+        private const int Rf64HeaderBytes = 80;
+        private const int Ds64RiffSizeOffset = 20;
+        private const int Ds64DataSizeOffset = 28;
+        private const int Ds64SampleCountOffset = 36;
 
         private readonly BinaryWriter _writer;
         private readonly bool _seekable;
@@ -353,7 +396,7 @@ namespace FFTTools {
             try {
                 if (!_headerWritten) EmitHeader(_framesWritten);
 
-                long dataBytes = _framesWritten * _frameBytes;
+                long dataBytes = checked(_framesWritten * (long)_frameBytes);
                 if ((dataBytes & 1L) != 0) _writer.Write((byte)0);
 
                 if (_seekable) {
@@ -370,12 +413,20 @@ namespace FFTTools {
 
         private void EmitHeader(long sampleCount) {
             _headerWritten = true;
-            uint dataBytes = DataByteCountForHeader(sampleCount);
+            ulong dataBytes = DataByteCount64(sampleCount);
+            ulong riffSize = RiffSize64(dataBytes);
             ushort format = (ushort)(_isFloat ? WaveFormatIeeeFloat : WaveFormatPcm);
 
-            WriteTextToken("RIFF");
-            WriteUInt32LE(36U + dataBytes + (dataBytes & 1U));
+            WriteTextToken("RF64");
+            WriteUInt32LE(UInt32.MaxValue);
             WriteTextToken("WAVE");
+
+            WriteTextToken("ds64");
+            WriteUInt32LE(28);
+            WriteUInt64LE(riffSize);
+            WriteUInt64LE(dataBytes);
+            WriteUInt64LE((ulong)Math.Max(0L, sampleCount));
+            WriteUInt32LE(0); // no additional 64-bit chunk-size table entries
 
             WriteTextToken("fmt ");
             WriteUInt32LE(16);
@@ -387,23 +438,29 @@ namespace FFTTools {
             WriteUInt16LE((ushort)_bits);
 
             WriteTextToken("data");
-            WriteUInt32LE(dataBytes);
+            WriteUInt32LE(UInt32.MaxValue);
         }
 
         private void PatchSizes(long sampleCount) {
-            uint dataBytes = DataByteCountForHeader(sampleCount);
+            ulong dataBytes = DataByteCount64(sampleCount);
+            ulong riffSize = RiffSize64(dataBytes);
             long current = _writer.BaseStream.Position;
-            _writer.BaseStream.Seek(4, SeekOrigin.Begin);
-            WriteUInt32LE(36U + dataBytes + (dataBytes & 1U));
-            _writer.BaseStream.Seek(40, SeekOrigin.Begin);
-            WriteUInt32LE(dataBytes);
+            _writer.BaseStream.Seek(Ds64RiffSizeOffset, SeekOrigin.Begin);
+            WriteUInt64LE(riffSize);
+            _writer.BaseStream.Seek(Ds64DataSizeOffset, SeekOrigin.Begin);
+            WriteUInt64LE(dataBytes);
+            _writer.BaseStream.Seek(Ds64SampleCountOffset, SeekOrigin.Begin);
+            WriteUInt64LE((ulong)Math.Max(0L, sampleCount));
             _writer.BaseStream.Seek(current, SeekOrigin.Begin);
         }
 
-        private uint DataByteCountForHeader(long sampleCount) {
-            long bytes = sampleCount * _frameBytes;
-            if (bytes > UInt32.MaxValue) bytes = UInt32.MaxValue;
-            return (uint)bytes;
+        private ulong DataByteCount64(long sampleCount) {
+            long frames = Math.Max(0L, sampleCount);
+            return (ulong)checked(frames * (long)_frameBytes);
+        }
+
+        private ulong RiffSize64(ulong dataBytes) {
+            return (ulong)(Rf64HeaderBytes - 8) + dataBytes + (dataBytes & 1UL);
         }
 
         private void WriteTextToken(string value) {
@@ -420,6 +477,17 @@ namespace FFTTools {
             _writer.Write((byte)((value >> 8) & 0xFF));
             _writer.Write((byte)((value >> 16) & 0xFF));
             _writer.Write((byte)((value >> 24) & 0xFF));
+        }
+
+        private void WriteUInt64LE(ulong value) {
+            _writer.Write((byte)(value & 0xFF));
+            _writer.Write((byte)((value >> 8) & 0xFF));
+            _writer.Write((byte)((value >> 16) & 0xFF));
+            _writer.Write((byte)((value >> 24) & 0xFF));
+            _writer.Write((byte)((value >> 32) & 0xFF));
+            _writer.Write((byte)((value >> 40) & 0xFF));
+            _writer.Write((byte)((value >> 48) & 0xFF));
+            _writer.Write((byte)((value >> 56) & 0xFF));
         }
     }
 }

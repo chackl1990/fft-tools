@@ -79,8 +79,6 @@ namespace FFTTools {
             double[] sideR = new double[WindowSize];
             double[] backL = new double[WindowSize];
             double[] backR = new double[WindowSize];
-            double[] rawCenterMask = new double[binCount + 1];
-            double[] centerPhaseWeight = new double[binCount + 1];
 
             double centerGain = Clamp(options.CenterGain, 0.0, 2.0);
             double wideGain = Math.Max(0.0, options.WideGain);
@@ -100,8 +98,6 @@ namespace FFTTools {
                 Array.Clear(sideR, 0, sideR.Length);
                 Array.Clear(backL, 0, backL.Length);
                 Array.Clear(backR, 0, backR.Length);
-                Array.Clear(rawCenterMask, 0, rawCenterMask.Length);
-                Array.Clear(centerPhaseWeight, 0, centerPhaseWeight.Length);
 
                 int copyStart = Math.Max(0, -blockStart);
                 int copyEnd = Math.Min(WindowSize, frames - blockStart);
@@ -115,23 +111,24 @@ namespace FFTTools {
                 fft.ComputeForward(left);
                 fft.ComputeForward(right);
 
-                // Use the same signed-amplitude / folded-phase Center logic as
-                // the dereverb based upmix mode. Complex FFT bins remain unchanged;
-                // only the Center calculation uses the signed polar representation.
+                // Use the same CenterExtract sum/difference common-signal estimate
+                // as the dereverb based upmix mode. No additional pan gate,
+                // phase-delay gate, signed-amplitude fold, or fragment prune is
+                // applied in the Center stage.
                 for (int bin = 1; bin < binCount; bin++) {
                     int si = bin * 2;
-                    double lR = left[si];
-                    double lI = left[si + 1];
-                    double rR = right[si];
-                    double rI = right[si + 1];
-                    double lSignedAmplitude = FFTToolsUpmix.SignedSpectralAmplitude(lR, lI);
-                    double rSignedAmplitude = FFTToolsUpmix.SignedSpectralAmplitude(rR, rI);
-                    double panPos = FFTToolsUpmix.SignedAmplitudePan(lSignedAmplitude, rSignedAmplitude);
-                    double levelGate = FFTToolsUpmix.CenterLevelGateFromPan(panPos, centerPosition);
-                    if (panSharpness != 1.0) levelGate = Math.Pow(levelGate, panSharpness);
-                    double phaseGate = FFTToolsUpmix.CenterPhaseGate(FFTToolsUpmix.CosFoldedPhase(lR, lI, rR, rI), (double)bin * binHz);
-                    centerPhaseWeight[bin] = phaseGate;
-                    rawCenterMask[bin] = Clamp(levelGate * phaseGate, 0.0, 1.0);
+                    double cR;
+                    double cI;
+                    FFTToolsUpmix.BuildCenterExtractBin(
+                        left[si],
+                        left[si + 1],
+                        right[si],
+                        right[si + 1],
+                        centerGain,
+                        out cR,
+                        out cI);
+                    center[si] = cR;
+                    center[si + 1] = cI;
                 }
 
                 for (int bin = 1; bin < binCount; bin++) {
@@ -144,13 +141,8 @@ namespace FFTTools {
                     double rMag = Math.Sqrt((rR * rR) + (rI * rI));
                     double panPos = Clamp((rMag - lMag) / (lMag + rMag + 1.0e-20), -1.0, 1.0);
 
-                    double cMask = rawCenterMask[bin] * centerGain;
-                    double cR;
-                    double cI;
-                    FFTToolsUpmix.BuildSignedAmplitudeCenterBin(lR, lI, rR, rI, cMask, centerPhaseWeight[bin], out cR, out cI);
-                    center[si] = cR;
-                    center[si + 1] = cI;
-
+                    double cR = center[si];
+                    double cI = center[si + 1];
                     double lResR = lR - cR;
                     double lResI = lI - cI;
                     double rResR = rR - cR;
@@ -170,9 +162,9 @@ namespace FFTTools {
                     double wideMask = sideRatio * ((widePhaseWeight <= 0.0) ? 1.0 : Math.Pow(phaseWide, widePhaseWeight));
                     wideMask = Math.Pow(Clamp(wideMask, 0.0, 1.0), wideExponent) * lowCutMask * wideGain;
 
-                    double frontShare = 1.0 - Math.Pow(Math.Abs(panPos), 0.65);
-                    frontShare = Clamp(frontShare, 0.0, 1.0);
-                    double surroundShare = 1.0 - frontShare;
+                    double frontShare;
+                    double surroundShare;
+                    FFTToolsUpmix.ComputeFrontSidePanSplit(panPos, out frontShare, out surroundShare);
 
                     frontL[si] = lResR * frontShare;
                     frontL[si + 1] = lResI * frontShare;
