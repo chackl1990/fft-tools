@@ -1,7 +1,6 @@
 # FFT Tools
 
-Revision r158 is based on r157 and keeps the intended Dry residual Front/Side pan split. The Dry Center is calculated by the neutral CenterExtract sum/difference implementation, RF64 output and RIFF/RF64 input support remain active, and the correct reconstruction equation includes the optional Dry Side split.
-Inspiration the general Center Cut concept by Avery Lee.
+Inspiration by Center Cut concept by Avery Lee.
 Internal WAV I/O by chackl; FFT backend retained separately.
 
 FFT Tools is a collection of FFT-based audio processing tools designed for Hi-Fi experiments and advanced audio research.
